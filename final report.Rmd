@@ -1,0 +1,487 @@
+---
+title: "Group17: Analysis on Prices of Used Vehicles"
+author: "Zoey Ling, Xincheng Wang, Xianglin Zhang, Bosco Zhu"
+date: "11/26/2019"
+output:
+  pdf_document: default
+---
+# Introduction
+
+## $\bullet$ Main Dataset
+Our main dataset is scraped from Craigslist, which is an American classified advertisements website with the largest collection of used vehicles for sale. Our main dataset contains over 1 million observations with 26 features of used vehicles such as year, manufacturer, and price. We first subset the data to choose the rows where the variables we are interested in are all valid, such as manufacturer, condition, and fuel. Additionally, after looking at the summary of the dataset, we identified vehicles with prices higher than $500,000 as outliers and removed the corresponding rows accordingly.
+
+## $\bullet$ Seoncd Source Dataset
+Our second source dataset is scraped from Carvana, an online used-vehicle retailer. The dataset contains 1,150 observations of 5 variables, which are features of used vehicles such as price, year of production, and manufacturer. In order to compare two datasets and to further validate our results, we subset both datasets to keep only 10 manufacturers that appear in both datasets.
+
+## $\bullet$ Purpose of the Datasets
+Our goal is to determine whether the factors we select, namely the type, manufacturer, and condition of the vehicle, would affect its price. We hypothesize that all three of them have an effect on the used vehicles’ prices. We are also interested in how the price of used vehicles will look like in the future U.S. market.
+
+  
+# General Exploration
+## Analysis 1. Price Trends Over Time
+```{r, echo = FALSE, results='hide', fig.align = 'center', fig.keep='all',warning=FALSE,message=FALSE,error=FALSE}
+library(knitr)
+library(dplyr)
+library(tidyverse)
+library(forcats)
+library(gridExtra)
+library(RSQLite)
+library(icd)
+library(jsonlite)
+library(gtable)
+library(grid)
+library(latex2exp)
+library(gridBase)
+library(nnet)
+library(ggplot2)
+#install.packages("waffle", repos = "https://cinc.rud.is")
+cbPalette <-c("#999999", "#E69F00", "#56B4E9", "#009E73","#F0E442", "#0072B2",
+              "#D55E00", "#CC79A7")
+
+theme1 <-theme_bw() +
+  theme(axis.text =element_text(size = 8, colour = "#6b3447"),
+        axis.title =element_text(size = 10, colour = "#2f2f63"),
+        legend.title =element_text(size = 8, colour = "#2f2f63"),
+        legend.text =element_text(size = 8, colour = "#6b3447"),
+        title =element_text(size = 12, colour = "#2f2f63"),
+        axis.ticks =element_line(colour = "#6b3447"),
+        plot.caption =element_text(size = 8, colour = "#2f2f63"),
+        plot.subtitle =element_text(size = 10, colour = "#2f2f63"))
+vehicles <- read.csv("C:/Users/Xianglin Zhang/Desktop/2019 Fall/STAT 405/New Project/Group_Project/craigslistVehiclesFull.csv", header = TRUE)
+vehicles4 <- subset(vehicles, (type != "") & (manufacturer != "") & (condition != "") & (fuel != "") & (state_code != "") & !is.na(odometer) & (make != "") & (state_name != "") & (price <= 500000))
+```
+
+```{r, echo = FALSE, results='hide', fig.align = 'center', fig.keep='all',warning=FALSE,message=FALSE,error=FALSE}
+first_plot<-ggplot(data = vehicles4, aes(x = year, y = price)) + 
+  stat_summary(fun.y = "mean", geom = "line", colour = "red") +
+  xlim(1980, 2018) +
+  ylim(1000, 20000) +
+  labs(x="Year", y="Price (Dollars)", title="Annual Price of Used Vehicles on Average from 1980 to 2018") + 
+  theme1 +
+  theme(axis.text.x = element_text(angle= 25, hjust=1, size = 10),
+        axis.text.y = element_text(size = 10),
+        title = element_text(size = 10),
+        axis.title.x = element_text(size = 10),
+        axis.title.y = element_text(size = 10))
+
+first_plot
+```
+### Analysis:
+As shown by the plot, the average price of vehicles decreases from 1980 to 2000 and then increases more rapidaly from 2000 to 2018. Currently, the used vehicle price is around $15,000. Even though the price of the vehicles shows short-run fluctutaions, it still exhibits an increasing trend over time.
+
+
+## Analysis 2. Distribution of Used Vehicle Conditions
+```{r, echo = FALSE, results='hide', fig.align = 'center', fig.keep='all',warning=FALSE,message=FALSE,error=FALSE}
+manu_list2 <-  c("mercedesbenz", "ford", "honda", "jeep", "BMW", "toyota", "ram", "cadillac", "buick")
+
+vehicles5 <- vehicles4 %>% subset(manufacturer %in% manu_list2)
+
+nrows <- 40
+var <- vehicles5$condition
+
+df <- expand.grid(y = 1:nrows, x = 1:nrows)
+categ_table <- round(table(var) * ((nrows*nrows)/(length(var))))
+
+#categ_table
+categ_table$excellent <- 734
+df$category <- factor(rep(names(categ_table), categ_table)) 
+#df$category
+waffle <- ggplot(df, aes(x = x, y = y, fill = category)) + 
+        geom_tile(color = "white", size = 0.5) +
+        labs(title="Distribution of Used Vehicles with Different Conditions",
+             caption="Source: Craigslist") + 
+        theme(panel.border = element_rect(size = 2),
+              plot.title = element_text(size = rel(1.2)),
+              axis.text = element_blank(),
+              axis.title = element_blank(),
+              axis.ticks = element_blank(),
+              legend.title = element_blank(),
+              legend.position = "bottom")
+
+waffle
+```
+### Analysis:
+
+
+## Analysis 3. Distribution of Used Vehicle Prices&Types across the U.S.
+```{r, echo = FALSE, results='hide', fig.align = 'center', fig.keep='all',warning=FALSE,message=FALSE,error=FALSE}
+#vehicles <- read.csv("~/Desktop/stat405/craigslistVehiclesFull.csv", header = TRUE)
+#str(vehicles)
+#summary(vehicles)
+vehicles1 <- subset(vehicles, (type != "") & (manufacturer != "") & (condition != "") & (fuel != "") & (state_code != "") & !is.na(odometer) & (make != "") & (state_name != ""))
+
+library(maps)
+us_states <- map_data("state")
+mean_price <- aggregate(price ~ state_name, vehicles4, mean)
+mean_price$region <- tolower(mean_price$state_name)
+#str(mean_price)
+#str(us_states)
+price_data <- left_join(us_states, mean_price, by = "region")
+#str(price_data)
+usplot1 <- ggplot(data = price_data, mapping = aes(x = long, y = lat, group = group, fill = price)) + 
+geom_polygon(color = "white") +
+theme1 + 
+labs(x = "Longtitude", y = "Latitude", title="Distribution of Used Vehicle Prices", fill = "vehicle prices") + 
+  theme(axis.text.x = element_text(angle=25, hjust=1, size = 10),
+        axis.text.y = element_text(size = 10),
+        title = element_text(size = 10),
+        axis.title.x = element_text(size = 10),
+        axis.title.y = element_text(size = 10),
+        legend.position = "bottom")
+```
+
+```{r, echo = FALSE, results='hide', fig.align = 'center', fig.keep='all',warning=FALSE,message=FALSE,error=FALSE}
+vehicles4 <- subset(vehicles, (type != "") & (manufacturer != "") & (condition != "") & (fuel != "") & (state_code != "") & !is.na(odometer) & (make != "") & (state_name != "") & (price <= 500000))
+
+library(maps)
+us_states <- map_data("state")
+new_type <- vehicles4 %>% select(state_name, type)
+main_type <- new_type %>% group_by(state_name) %>% summarize(type = names(which.max(table(type))))
+main_type$region <- tolower(main_type$state_name)
+
+type_data <- left_join(us_states, main_type, by = "region")
+usplot2 <- ggplot(data = type_data, mapping = aes(x = long, y = lat, group = group, fill = type)) + 
+geom_polygon(color = "white") +
+labs(x = "Longtitude", y = "Latitude", title="Distribution of Used Vehicle Types", fill = "vehicle types") + 
+  theme(axis.text.x = element_text(angle=25, hjust=1, size = 10),
+        axis.text.y = element_text(size = 10),
+        title = element_text(size = 10),
+        axis.title.x = element_text(size = 10),
+        axis.title.y = element_text(size = 10),
+        legend.position = "bottom")
+grid.arrange(usplot1, usplot2, ncol=2)
+```
+### Analysis:
+According to the graph on the right-hand side, Sedan is mostly distributed in the southern and eastern states, whereas SUV is more popular in northern states and middle states. However, truck is popular in only two states, Wyoming and Mississippi, therefore having has a relatively weaker presence than the other two types.
+
+## Analysis 4. Distribution of Vehicle Manufacturers
+```{r, echo = FALSE, results='hide', fig.align = 'center', fig.keep='all',warning=FALSE,message=FALSE,error=FALSE}
+manu_list1 <-  c("jaguar", "ford","honda", "jeep", "BMW", "toyota", "ram", "cadillac", "mercedes", "buick")
+
+vehicles1 %>%
+  subset(manufacturer %in% manu_list1) -> vehicles2
+
+fourth_plot <- ggplot(data = vehicles2, aes(x = year, fill = manufacturer)) + 
+  geom_bar(position = "stack") +
+  xlim(1980, 2018) +
+  labs(x="Year", y="Manufacturers", title="Manufacturers of Used Vehicles, from 1980 to 2019") +
+  theme(axis.text.x = element_text(angle=25, hjust=1, size = 10),
+        axis.text.y = element_text(size = 10),
+        title = element_text(size = 10),
+        axis.title.x = element_text(size = 10),
+        axis.title.y = element_text(size = 10))
+
+fourth_plot
+```
+
+
+# Factors that Influence the Price of the Vehicles
+
+## Analysis 1. Type
+```{r, echo = FALSE, results='hide', fig.align = 'center', fig.keep='all',warning=FALSE,message=FALSE,error=FALSE}
+
+boxplot1 <- ggplot(data = vehicles4) + 
+  aes(x = type, y = price) + 
+  geom_boxplot(aes(fill = "purple")) +
+  ylim(3000, 15000) +
+  labs(x="Type", y= "Price (Dollars)", title="Type vs. Price (Dollars)", caption = "Source: Craigslist") + 
+  theme1 +
+  theme(axis.text.x = element_text(angle= 25, hjust=1, size = 10),
+        axis.text.y = element_text(size = 10),
+        title = element_text(size = 10),
+        axis.title.x = element_text(size = 10),
+        axis.title.y = element_text(size = 10),
+        legend.position = "none")
+
+boxplot1
+```
+### Hypothesis:
+From our experience, different types of vehicles usually have different price ranges. For instance, the average price of a truck should be higher than that of a mini-van. Therefore, we hypothesize that the type of vehicle will have an effect on its price.
+
+### Analysis:
+The overall distribution of the boxplots corresponding to different types of vehicles is relatively uniform. More specifically, the majority of vehicles have an average price of $7,000, a minimum price of $5,000, and a maximum price of $10,000. However, the price range of mini-vans, sedans, and other types of vehicles do exhibit some variation, with the highest price of other types of vehicles reaching more than $12,000 and the average price of mini-vans and sedans being approximately $6,000. But overall, the plot of different types of vehicles against prices still exhibits relatively low variation.
+
+### Conclusion:
+The price differences among different types of vehicles are not significant. Therefore, the type of vehicle does not affect its price.
+
+
+## Analysis 2. Manufacturer
+```{r, echo = FALSE, results='hide', fig.align = 'center', fig.keep='all',warning=FALSE,message=FALSE,error=FALSE}
+boxplot3 <- ggplot(data = vehicles2) + 
+  aes(x = manufacturer, y = price) + 
+  geom_boxplot(fill = "plum") +
+  ylim(3000, 20000) +
+  labs(x="Manufacturer", y= "Price (Dollars)", title="Manufacturer vs. Price (Dollars)", caption = "Source: Craigslist") + 
+  theme1 +
+  theme(axis.text.x = element_text(angle= 90, hjust=1, size = 10),
+        axis.text.y = element_text(size = 10),
+        title = element_text(size = 10),
+        axis.title.x = element_text(size = 10),
+        axis.title.y = element_text(size = 10),
+        legend.position = "none")
+
+boxplot3
+
+```
+
+### Hypothesis:
+Because the price of the vehicle is largely determined by its own manufacturer, we hypothesize that the manufacturer will be another factor that influences the vehicle price.
+
+### Analysis:
+Considering that this plot of price against manufacturers will be used for comparison with the plot from the 2nd source data, we select 10 manufacturers that are present in both sources of data. According to the plot, 70% of the manufacturers have a similar price range centered at around $7,700. Honda’s and Jaguar’s price ranges are 9.8% and 22.1% lower than the normal price range, respectively, whereas Ram’s price range is 42.6% higher. Overall, this suggests that the distribution of price against manufacturers is relatively uniform with some variation, which is inconsistent with our hypothesis.
+
+### Conclusion:
+The manufacturer does not influence to a large extent the price of the vehicle.
+
+
+## Analysis 3. Condition
+```{r, echo = FALSE, results='hide', fig.align = 'center', fig.keep='all',warning=FALSE,message=FALSE,error=FALSE}
+vehicles4$condition <- factor(vehicles4$condition,levels = c("excellent", "new", "like new", "good", "fair", "salvage"))
+boxplot4 <- ggplot(data = vehicles1) + 
+  aes(x = condition, y = price) + 
+  geom_boxplot(fill = "orange") +
+  ylim(3000, 20000) +
+  labs(x="Condition", y= "Price (Dollars)", title="Condition vs. Price (Dollars)", caption = "Source: Craigslist") +
+  theme1 +
+  theme(axis.text.x = element_text(angle=25, hjust=1, size = 10),
+        axis.text.y = element_text(size = 10),
+        title = element_text(size = 10),
+        axis.title.x = element_text(size = 10),
+        axis.title.y = element_text(size = 10))
+
+boxplot4
+```
+
+### Hypothesis:
+The condition of the vehicle affects its price, and more specifically, vehicles with better conditions have higher prices.
+
+### Analysis:
+According to the boxplot, the average price varies widely among different vehicle conditions, from around $10,000 for excellent/new/like-new vehicles down to $5,000 for fair/salvage vehicles. The price range also exhibits a downward trend as the vehicle condition gets worse, which is consistent with our hypothesis. Therefore, this wide difference suggests that vehicles with different conditions are indeed priced differently.
+
+### Conclusion:
+The condition of the vehicle does affect its price and vehicles with better conditions have higher prices.
+
+
+# Comparison between Main Dataset and 2nd Source Dataset
+## Analysis 1. Manufacturer vs. Price
+```{r, echo = FALSE, results='hide', fig.align = 'center', fig.keep='all',warning=FALSE,message=FALSE,error=FALSE}
+library(knitr)
+library(RSQLite)
+dcon <- dbConnect(SQLite(), dbname = "/Users/boscozhu/Desktop/Group17_2.db")
+
+res <- dbSendQuery(conn = dcon, "
+SELECT *
+FROM data
+")
+mydf <- dbFetch(res, -1)
+#head(mydf, 10)
+
+```
+
+```{r, echo = FALSE, results='hide', fig.align = 'center', fig.keep='all',warning=FALSE,message=FALSE,error=FALSE}
+manu_list1 <-  c("jaguar", "ford", "honda", "jeep", "bmw", "toyota", "ram", "cadillac", "mercedes", "buick")
+
+vehicles1 %>%
+  subset(manufacturer %in% manu_list1) -> vehicles2
+
+boxplot3 <- ggplot(data = vehicles2) + 
+  aes(x = manufacturer, y = price) + 
+  geom_boxplot(fill = "pink") +
+  ylim(1000, 50000) +
+  scale_x_discrete(labels=c("BMW", "Buick","Cadillac","Ford","Honda","Jeep", "Mercedes", "Ram", "Toyota", "Jaguar")) +
+  labs(x="Manufacturer", y= "Price (Dollars)", title="Craigslist: Manufacturer vs. Price (Dollars)") + 
+  theme1 +
+  theme(axis.text.x = element_text(angle=25, hjust=1, size = 10),
+        axis.text.y = element_text(size = 10),
+        title = element_text(size = 10),
+        axis.title.x = element_text(size = 10),
+        axis.title.y = element_text(size = 10))
+
+
+#2nd Source Plot: manufacturer vs. price
+mydf %>% 
+  separate("make", c("year", "manufacturer")) %>%
+  separate("mileage", c("miles", NA), sep = " ") -> mydf1
+
+price_n <- as.integer(gsub(",", "", mydf1$price))
+miles_n <- as.integer(gsub(",", "", mydf1$miles))
+
+#(ls1 <- unique(mydf2$manufacturer))
+#(ls2 <- unique(vehicles1$manufacturer))
+manu_list <- c("Jaguar", "Ford", "Honda", "Jeep", "BMW", "Toyota", "Ram", "Cadillac", "Mercedes", "Buick")
+
+mydf1 %>%
+  cbind(price_n, miles_n) %>%
+  subset(manufacturer %in% manu_list) -> mydf2
+
+
+boxplot_carvana1 <- ggplot(data = mydf2) + 
+  aes(x = manufacturer, y = price_n) + 
+  geom_boxplot(fill = "pink") +
+  ylim(7000, 50000) +
+  labs(x="Manufacturer", y= "Price (Dollars)", title= "Carvana: Manufacturer vs. Price (Dollars)", caption = "Source: Carvana") + 
+  theme1 +
+  theme(axis.text.x = element_text(angle= 25, hjust=1, size = 10),
+        axis.text.y = element_text(size = 10),
+        title = element_text(size = 10),
+        axis.title.x = element_text(size = 10),
+        axis.title.y = element_text(size = 10))
+
+#boxplot_carvana1
+library(gridExtra)
+grid.arrange(boxplot3, boxplot_carvana1, nrow=2)
+```
+
+### Hypothesis: 
+For both Carvana and Craigslist, based on our experiences, in general prices of used vehicles from manufacturers such as Jaguar, BMW and Mercedes tend to be higher than those of used vehicles from manufacturers such as Cadillac, Jeep and Ram; on the other hand, in general, prices of used vehicles from manufacturers such as Cadillac, Jeep and Ram tend to be higher than those of used vehicles from manufacturers such as Ford, Buick, Honda, Toyota. 
+
+### Analysis:
+In the above main-dataset plot, in the first level, Toyota has the highest price median, around \$18000, which also shows the widest range of price; then, at the second level, the price medians of BMW, Mercedes, Cadillac and Ford follow that of Toyota, which are around \$10000, which also show similar price ranges, a little narrower than Toyota's price range; next, Ram and Jaguar are at the third level with price medians around \$8000, which also display similar price ranges, narrower than those at the second level; finally, Honda, Jeep and Buick have the lowest price medians, around \$5000, which display similar price ranges with the least variation. Overall, there is little variation in prices of used vehicles from the main-dataset plot.
+
+In the below second-source plot, the first level includes Cadillac, Jaguar and Ram; while Ram has the highest price median, around \$35500, its price range is not as wide as that of Cadillac which has a price median around \$34500; on the other hand, Jaguar has the narrowest price range among the three manufacturers. The second level includes Mercedes, BMW, and Jeep whose price medians are around \$23000; while Jeep has the widest price range among the three manufacturers without considering the outliers, Mercedes has the narrowest price range, mainly varying from \$20000 to \$27500. The third level contains Toyota, Ford, and Honda whose price medians are around \$17500; while Toyota and Ford have similar price ranges, Honda has relatively narrow price range which varies from \$10000 to \$30000. Buick has the lowest price median, which is around \$15000 and the narrowest price range, which varies from \$14000 to \$16000, among all the manufacturers listed. Overall, there is a significant variation in prices of used vehicles from the second-source plot.
+
+The reasons of the difference in price variation may include that first of all, other factors of used vehicles, such as condition and year, might exert different influence on Craigslist’s vehicles’ prices and Carvana’s vehicles prices; the second reason is that Craigslist have a larger dataset than Carvana.
+
+### Conclusion:
+Im conclusion, prices of used vehicles, specifically those from BMW, Buick, Cadillac, Ford, Honda, Jeep, Mercedes, Ram, Toyota and Jaguar, are not significantly influenced by manufacturers. Instead of maintaining the rank of original prices of vehicles, the rank of prices of used vehicles tends to be influenced by other features of used vehicles. Specifically, Craigslist and Carvana have somewhat different ranks of prices, which indicates other factors of used vehicles such as odometer, year and condition also exert remarkable influence on the prices of used vehicles.
+
+## Analysis 2. Travel Distance vs. Price
+```{r, echo = FALSE, results='hide', fig.align = 'center', fig.keep='all',warning=FALSE,message=FALSE,error=FALSE}
+#from Craiglist: annual distance on average vs. price
+vehicles2 <- subset(vehicles1, year = 2018)
+vehicles2$metercat1<-cut(vehicles2$odometer, seq(2000, 98000, 4000))
+vehicles3 <- subset(vehicles2, (metercat1 != "") &(odometer <= 50000))
+#summary(vehicles3$metercat1)
+second_plot_prime <- ggplot(data = vehicles3, aes(x = factor(metercat1), y = price, group = 1)) + 
+  stat_summary(fun.y = "mean", geom = "line", colour = "green") +
+  ylim(5000, 30000) +
+  labs(x="Travel Distance", y="Price (Dollars)", title="Craigslist: Travel Distance vs Price, 2018", caption = "Source: Craigslist") + 
+  theme1 +
+  scale_x_discrete(labels=c("2k-6k", "6k-10k","10k-14k","14k-18k","18k-22k","22k-26k", "26k-30k", "30k-34k", "34k-38k", "38k-42k", "42k-46k", "46k-50k")) +
+  theme(axis.text.x = element_text(angle=90, hjust=1, size = 10),
+        axis.text.y = element_text(size = 10),
+        title = element_text(size = 10),
+        axis.title.x = element_text(size = 10),
+        axis.title.y = element_text(size = 10))
+
+#second_plot_prime
+```
+
+```{r, echo = FALSE, results='hide', fig.align = 'center', fig.keep='all',warning=FALSE,message=FALSE,error=FALSE}
+#2nd Source Plot: travel distance vs. price
+mydf2$metercat1 <- cut(mydf2$miles_n, seq(2000, 98000, 4000))
+mydf3 <- subset(mydf2, metercat1 != "")
+mydf3 <- subset(mydf3, year == "2018")
+#str(mydf3)
+
+boxplot_carvana2 <- ggplot(data = mydf3, aes(x = factor(metercat1), y = price_n, group = 1)) + 
+  stat_summary(fun.y = "mean", geom = "line", colour = "green") +
+  ylim(5000, 30000) +
+  labs(x="Travel Distance", y="Price (Dollars)", title="Carvana: Travel Distance vs Price, 2018", caption = "Source: Carvana") + 
+  theme1 +
+  scale_x_discrete(labels=c("2k-6k", "6k-10k","10k-14k","14k-18k","18k-22k","22k-26k", "26k-30k", "30k-34k", "34k-38k", "38k-42k", "42k-46k", "46k-50k")) +
+  theme(axis.text.x = element_text(angle=90, hjust=1, size = 10),
+        axis.text.y = element_text(size = 10),
+        title = element_text(size = 10),
+        axis.title.x = element_text(size = 10),
+        axis.title.y = element_text(size = 10))
+
+grid.arrange(second_plot_prime, boxplot_carvana2, nrow=2)
+```
+### Hypothesis: 
+Generally speaking, the longer travel distance is, the lower the price of a vehicle is. Hence, for both Carvana and Craigslist, we expect the two line plots show a negative correlation between price and travel distance.
+
+### Analysis:
+In the above main-dataset plot, the line is decreasing with little fluctuation on the whole, which explicitly indicates the negative correlation between travel distance and price of used vehicles.
+
+In the below second-source plot, the line fluctuates a lot, especially in the segment between 10k-14k and 14k-18k of odometer which shows a significant descent. 
+
+Despite the difference in fluctuations of lines from the two plots, as a whole, the line plot is still gradually decreasing, an indicator of a negative correlation between travel distance and price of used vehicles.
+
+### Conclusion:
+In conclusion, we have a comprehensive and clear picture of the negative correlation between travel distance and price of used vehicles based on the two plots of Craigslist and Carvana. Whereas the whole pictures are the same for both Craigslist and Carvana, specifically, since Craigslist has a larger dataset than Carvana, its price trend is much smoother than that of Carvana. 
+
+
+# Future Price Trends Analysis
+```{r, echo = TRUE, fig.align = 'center', fig.keep='all',warning=FALSE, message=FALSE,error=FALSE}
+## Create a Viewport with a Standard Plot Layout
+## margins: A numeric vector interpreted in the same way as par(mar)
+##          in base graphics.
+vp1 <- viewport(x = 0.2, y = 0.4, w = 0.5, h = 0.5,
+                just = c("left", "bottom"))
+pushViewport(vp1)
+#plotViewport(margins = c(5.1, 4.1, 4.1, 2.1))
+grid.rect(gp = gpar(col = "grey", lwd = 5))
+## Create a Viewport with Scales based on Data
+pushViewport(dataViewport(fuel_table1$vars, fuel_table1$price, xscale = c(1898, 2021), yscale = c(-3000, 75000)))
+grid.rect()
+grid.text("Average Price of Vehicles vs. Fuel", y = 1.1)
+grid.text("Year", y = -0.25)
+grid.text("Average price", x = -0.25, rot = 90)
+grid.xaxis()
+grid.yaxis()
+grid.points(fuel_table1$vars, fuel_table1$price, pch = 19, size = unit(fuel_table1$quantity ** (1 / 4), "mm"), gp = gpar(col = fuel_table1$fuel))
+l <- loess(price ~ vars, data=fuel_table1)
+smoothed <- predict(l)
+grid.lines(unit(fuel_table1$vars, "native"),
+unit(smoothed, "native"), gp=gpar(col="blue", lwd = 2))
+vp2 <- viewport(x = 0.9, y = 0.45, w = 0.5, h = 0.5,
+                just = c("left", "bottom"))
+pushViewport(vp2)
+grid.legend(c("diesel", "electric", "gas", "hybrid", "other"), pch=20, vgap = 0.3,
+                     gp=gpar(col = 2:6, cex = 0.6))
+
+vp3 <- viewport(x = 0.22, y = -0.5, w = 0.5, h = 0.5,
+                just = c("left", "bottom"), )
+pushViewport(vp3)
+grid.legend( c(500), pch=19, gp=gpar(col = 1, cex = 0.6))
+
+vp4 <- viewport(x = 0.33, y = -0.1, w = 0.5, h = 0.5,
+                just = c("left", "bottom"), )
+pushViewport(vp4)
+grid.legend( c(1000), pch=19, gp=gpar(col = 1, cex = 0.8))
+
+vp5 <- viewport(x = 0.34, y = -0.4, w = 0.5, h = 0.5,
+                just = c("left", "bottom"), )
+pushViewport(vp5)
+grid.legend( c(1500), pch=19, gp=gpar(col = 1, cex = 1))
+
+vp6 <- viewport(x = 0.45, y = -1, w = 0.5, h = 0.5,
+                just = c("left", "bottom"), )
+pushViewport(vp6)
+grid.legend( c(2000), pch=19, gp=gpar(col = 1, cex = 1.2))
+
+vp7 <- viewport(x = 0.62, y = -2.5, w = 0.5, h = 0.5,
+                just = c("left", "bottom"), )
+pushViewport(vp7)
+grid.legend( c(2500), pch=19, gp=gpar(col = 1, cex = 1.4))
+```
+### Hypothesis: 
+The price of vehicles should exhibit an increasing trend over time. Up to now, diesel and gas vehicles should have the largest market share. 
+
+### Analysis:
+The approximation line increases from 1900 to 1945, indicating an increase in the price of vehicles drive by gas. However, the approximation line decreases from 1945 to 1990, driven by a decline in the price of gas-driven vehicles. At the same time, vehicles backed by new energies(electricity, hybrid, and others, etc) started emerging in the market. Starting from1990, the mean prices increases again. Diesel vehicles becomes the major price driver in the market, and new energy vehicles also increases in prices. 
+
+### Conclusion:
+We have seen an increase in the mean price of difference types of fuels starting from 1995 to nowadays. Before 1975, the mean price in the market is driven by gas vehicles. As the time marches, vehicles with different types of fuels gradually take hold of the market. Although diesel and gas vehicles are still the major price drivers in the market nowadays, electric and hybrid vehicles start to emerge and exhibits trends in price increase. The mean price of vehicles is expected to increase in the future years.
+
+
+# Conclusion:
+## General Explorations: 
+(1) Geographical location affects the distribution of the vehicle types and prices.
+(2) The market share of every manufacturer is relatively stable over time.
+(3) Ford is the dominant manufacturer in the United States, followed by Toyota. 
+(4) The majority of vehicles in the market are in “excellent” and “good” condition.
+
+## Factors: 
+(1) Type and manufacturer do not greatly affect the vehicle’s price. 
+(2) Vehicles with better conditions have higher prices. 
+(3) As the travel distance increases, the price of used vehicles decreases.
+
+## Future Price Trends: 
+(1) The future price of vehicles is expected to increase in the near future, mainly driven by diesel and gas vehicles.
+
+
+# Future Work:
+
+
